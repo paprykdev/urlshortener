@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"math/big"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -14,8 +13,8 @@ import (
 )
 
 const (
-	Charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	StringLength = 8
+	charset      = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	stringLength = 8
 )
 
 type LinksHandler struct {
@@ -32,7 +31,7 @@ func (h *LinksHandler) GetAll(c *gin.Context) {
 	var links []models.Link
 
 	qr := `
-		SELECT * FROM links
+		SELECT id, url, short_code, created_at FROM links
 	`
 
 	rows, err := h.DB.Query(qr)
@@ -61,6 +60,7 @@ func (h *LinksHandler) GetAll(c *gin.Context) {
 
 	if err := rows.Err(); err != nil {
 		response.Fail(c, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
+		return
 	}
 
 	response.Success(c, http.StatusOK, links)
@@ -70,51 +70,48 @@ func (h *LinksHandler) CreateLink(c *gin.Context) {
 	var dto CreateLinkDTO
 
 	if err := c.BindJSON(&dto); err != nil {
-		response.Fail(c, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
+		response.Fail(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
-	}
-
-	str, err := generateString()
-	if err != nil {
-		response.Fail(c, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
-		return
-	}
-
-	link := models.Link{
-		ID: uuid.New().String(),
-		Url: dto.Url,
-		ShortCode: str,
-		CreatedAt: time.Now(),
 	}
 
 	qr := `
-		INSERT INTO links(id, url, short_code) VALUES (?, ?, ?)
+	INSERT INTO links(id, url, short_code) VALUES (?, ?, ?)
 	`
 
-	res, err := h.DB.Exec(qr, link.ID, link.Url, link.ShortCode)
-	if err != nil {
-		response.Fail(c, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
-		return
+	for {
+		shortCode, err := generateString()
+		if err != nil {
+			response.Fail(c, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
+			return
+		}
+
+		_, err = h.DB.Exec(qr, uuid.New().String(), dto.Url, shortCode)
+
+		if err == nil {
+			response.Success(c, http.StatusCreated, gin.H{
+				"short_code": shortCode,
+			})
+			return
+		}
 	}
 
-	response.Success(c, http.StatusCreated, res)
 }
 
 func generateString() (string, error) {
-	result := make([]byte, StringLength)
+	result := make([]byte, stringLength)
 
 	for i := range result {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(Charset))))
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
 		if err != nil {
 			return "", err
 		}
 
-		result[i] = Charset[n.Int64()]
+		result[i] = charset[n.Int64()]
 	}
 
 	return string(result), nil
 }
 
 type CreateLinkDTO struct {
-	Url string `json:"url"`
+	Url string `json:"url" binding:"required,url"`
 }
