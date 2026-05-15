@@ -25,6 +25,7 @@ func main() {
 			"message": "pong",
 		})
 	})
+	r.GET(":code", linksHandler.Redirect)
 
 	r.Run()
 }

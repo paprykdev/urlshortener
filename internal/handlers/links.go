@@ -68,9 +68,25 @@ func (h *LinksHandler) GetAll(c *gin.Context) {
 
 func (h *LinksHandler) CreateLink(c *gin.Context) {
 	var dto CreateLinkDTO
+	var short_code string
+
 
 	if err := c.BindJSON(&dto); err != nil {
 		response.Fail(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	qrCheck := `
+		SELECT short_code FROM Links WHERE url = ?
+	`
+
+	if err := h.DB.QueryRow(qrCheck, dto.Url).Scan(&short_code); err == nil {
+		response.Success(c, http.StatusOK, gin.H{
+			"short_code": short_code,
+		})
+		return
+	} else if err != sql.ErrNoRows {
+		response.Fail(c, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
 		return
 	}
 
@@ -97,6 +113,27 @@ func (h *LinksHandler) CreateLink(c *gin.Context) {
 
 }
 
+func (h *LinksHandler) Redirect(c *gin.Context) {
+	var url string
+
+	shortCode := c.Param("code")
+	if len(shortCode) != stringLength {
+		response.Fail(c, http.StatusBadRequest, "INVALID_SHORT_CODE", "invalid short code")
+		return
+	}
+
+	qr := `
+		SELECT url FROM Links WHERE short_code = ?
+	`
+
+	if err := h.DB.QueryRow(qr, shortCode).Scan(&url); err != nil {
+		response.Fail(c, http.StatusNotFound, "NOT_FOUND", err.Error())
+		return
+	}
+
+	c.Redirect(http.StatusMovedPermanently, url)
+}
+
 func generateString() (string, error) {
 	result := make([]byte, stringLength)
 
@@ -115,3 +152,4 @@ func generateString() (string, error) {
 type CreateLinkDTO struct {
 	Url string `json:"url" binding:"required,url"`
 }
+
